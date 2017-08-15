@@ -57,6 +57,10 @@ Usage:
 	codis-admin [-v] --config-convert=FILE
 	codis-admin [-v] --config-restore=FILE       --product=NAME (--zookeeper=ADDR|--etcd=ADDR|--filesystem=ROOT) [--confirm]
 	codis-admin [-v] --dashboard-list                           (--zookeeper=ADDR|--etcd=ADDR|--filesystem=ROOT)
+	codis-admin [-v] --dashboard=ADDR            --namespace-add      --nid=ID --password=PASSWORD --keyprefix=KEY_PREFIX
+	codis-admin [-v] --dashboard=ADDR            --resync-namespace [[--nid=ID] --all]
+	codis-admin [-v] --dashboard=ADDR            --namespace-add      --nid=ID --password=PASSWORD --keyprefix=KEY_PREFIX
+	codis-admin [-v] --dashboard=ADDR            --list-namespace [[--nid=ID] --all]
 
 Options:
 	-a AUTH, --auth=AUTH

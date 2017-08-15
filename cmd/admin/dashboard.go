@@ -83,6 +83,12 @@ func (t *cmdDashboard) Main(d map[string]interface{}) {
 
 	case d["--rebalance"].(bool):
 		t.handleSlotRebalance(d)
+	case d["--namespace-add"].(bool):
+		fallthrough
+	case d["--list-namespace"].(bool):
+		fallthrough
+	case d["--resync-namespace"].(bool):
+		t.handleNamespaceCommand(d)
 
 	}
 }
@@ -465,6 +471,68 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]interface{}) {
 			fmt.Printf(xfmt, p.Id, p.Token, p.AdminAddr, p.ProxyAddr)
 			fmt.Println()
 		}
+	}
+}
+func (t *cmdDashboard) handleNamespaceCommand(d map[string]interface{}) {
+	c := t.newTopomClient()
+
+	switch {
+
+	case d["--namespace-add"].(bool):
+
+		nid := utils.ArgumentMust(d, "--nid")
+		npassword := utils.ArgumentMust(d, "--password")
+		keypre := utils.ArgumentMust(d, "--keyprefix")
+		if len(nid) == 0 || len(npassword) == 0 {
+			log.Panic("namespace nid password could not empty.")
+		}
+
+		ns := models.Namespace{
+			Id:        nid,
+			Password:  npassword,
+			KeyPrefix: keypre,
+		}
+		log.Debugf("call rpc add-namespace to dashboard %s", t.addr)
+		if err := c.CreateNamespace(ns); err != nil {
+			log.PanicErrorf(err, "call rpc add-namespace to dashboard %s failed", t.addr)
+		}
+		log.Debugf("call rpc add-namespace OK")
+
+	case d["--resync-namespace"].(bool):
+
+		switch {
+
+		case d["--all"].(bool):
+			if err := c.ResyncNamespaceAll(); err != nil {
+				log.PanicErrorf(err, "call rpc resync-namespace-all to dashboard %s failed", t.addr)
+			}
+			log.Debugf("call rpc resync-namespace-all OK")
+
+		default:
+
+			nid := utils.ArgumentMust(d, "--nid")
+			log.Debugf("call rpc resync-namespace to dashboard %s", t.addr)
+			if err := c.ResyncNamespace(nid); err != nil {
+				log.PanicErrorf(err, "call rpc resync-namespace to dashboard %s failed", t.addr)
+			}
+			log.Debugf("call rpc resync-namespace OK")
+		}
+
+	case d["--list-namespace"].(bool):
+
+		switch {
+		default:
+
+			log.Debugf("call rpc list-namespace to dashboard %s", t.addr)
+			if rsp, err := c.ListNamespace(); err != nil {
+				log.PanicErrorf(err, "call rpc list-namespace to dashboard %s failed", t.addr)
+			} else {
+				b, _ := json.MarshalIndent(rsp, "", "    ")
+				fmt.Printf("%s\n", b)
+			}
+			log.Debugf("call rpc list-namespace OK")
+		}
+
 	}
 }
 

@@ -58,6 +58,14 @@ func SentinelPath(product string) string {
 	return filepath.Join(CodisDir, product, "sentinel")
 }
 
+func NamespaceDir(product string) string {
+	return filepath.Join(CodisDir, product, "namespace")
+}
+
+func NamespacePath(product, ns string) string {
+	return filepath.Join(CodisDir, product, "namespace", fmt.Sprintf("ns-%s", ns))
+}
+
 func LoadTopom(client Client, product string, must bool) (*Topom, error) {
 	b, err := client.Read(LockPath(product), must)
 	if err != nil || b == nil {
@@ -113,6 +121,14 @@ func (s *Store) ProxyPath(token string) string {
 
 func (s *Store) SentinelPath() string {
 	return SentinelPath(s.product)
+}
+
+func (s *Store) NamespaceDir() string {
+	return NamespaceDir(s.product)
+}
+
+func (s *Store) NamespacePath(id string) string {
+	return NamespacePath(s.product, id)
 }
 
 func (s *Store) Acquire(topom *Topom) error {
@@ -260,4 +276,40 @@ func ValidateProduct(name string) error {
 		return nil
 	}
 	return errors.Errorf("bad product name = %s", name)
+}
+
+func (s *Store) ListNamespace() (map[string]*Namespace, error) {
+	paths, err := s.client.List(s.NamespaceDir(), false)
+	if err != nil {
+		return nil, err
+	}
+	ns := make(map[string]*Namespace)
+	for _, path := range paths {
+		b, err := s.client.Read(path, true)
+		if err != nil {
+			return nil, err
+		}
+		n := &Namespace{}
+		if err := jsonDecode(n, b); err != nil {
+			return nil, err
+		}
+		ns[n.Id] = n
+	}
+	return ns, nil
+}
+
+func (s *Store) LoadNamespace(nsid string, must bool) (*Namespace, error) {
+	b, err := s.client.Read(s.NamespacePath(nsid), must)
+	if err != nil || b == nil {
+		return nil, err
+	}
+	n := &Namespace{}
+	if err := jsonDecode(n, b); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+func (s *Store) StoreNamespace(n *Namespace) error {
+	return s.client.Update(s.NamespacePath(n.Id), n.Encode())
 }

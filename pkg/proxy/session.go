@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,7 @@ type Session struct {
 	config *Config
 
 	authorized bool
+	namespace  *Namespace
 }
 
 func (s *Session) String() string {
@@ -135,6 +137,9 @@ func (s *Session) Start(d *Router) {
 		go func() {
 			s.loopWriter(tasks)
 			decrSessions()
+			if s.namespace != nil {
+				s.namespace.decrSessions()
+			}
 		}()
 
 		go func() {
@@ -174,6 +179,9 @@ func (s *Session) loopReader(tasks *RequestChan, d *Router) (err error) {
 		r.Batch = &sync.WaitGroup{}
 		r.Database = s.database
 		r.UnixNano = start.UnixNano()
+		if s.config.SessionNamespace && s.namespace != nil {
+			r.namespace = s.namespace
+		}
 
 		if err := s.handleRequest(r, d); err != nil {
 			r.Resp = redis.NewErrorf("ERR handle request, %s", err)
@@ -263,11 +271,11 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 	case "QUIT":
 		return s.handleQuit(r)
 	case "AUTH":
-		return s.handleAuth(r)
+		return s.handleAuth(r, d)
 	}
 
 	if !s.authorized {
-		if s.config.SessionAuth != "" {
+		if s.config.SessionNamespace || s.config.SessionAuth != "" {
 			r.Resp = redis.NewErrorf("NOAUTH Authentication required")
 			return nil
 		}
@@ -306,20 +314,47 @@ func (s *Session) handleQuit(r *Request) error {
 	return nil
 }
 
-func (s *Session) handleAuth(r *Request) error {
+func (s *Session) handleAuth(r *Request, d *Router) error {
 	if len(r.Multi) != 2 {
 		r.Resp = redis.NewErrorf("ERR wrong number of arguments for 'AUTH' command")
 		return nil
 	}
-	switch {
-	case s.config.SessionAuth == "":
-		r.Resp = redis.NewErrorf("ERR Client sent AUTH, but no password is set")
-	case s.config.SessionAuth != string(r.Multi[1].Value):
-		s.authorized = false
-		r.Resp = redis.NewErrorf("ERR invalid password")
-	default:
-		s.authorized = true
-		r.Resp = RespOK
+	if !s.config.SessionNamespace {
+		switch {
+		case s.config.SessionAuth == "":
+			r.Resp = redis.NewErrorf("ERR Client sent AUTH, but no password is set")
+		case s.config.SessionAuth != string(r.Multi[1].Value):
+			s.authorized = false
+			r.Resp = redis.NewErrorf("ERR invalid password")
+		default:
+			s.authorized = true
+			r.Resp = RespOK
+		}
+	} else {
+		if s.authorized {
+			r.Resp = RespOK
+			return nil
+		}
+		data := strings.Split(string(r.Multi[1].Value), ":")
+		//log.Infof("namespace session [%p] auth: %q", s, r.Multi[1].Value)
+		if len(data) != 2 {
+			s.authorized = false
+			r.Resp = redis.NewErrorf("ERR invalid password")
+		} else {
+			nsid := data[0]
+			password := data[1]
+			ns := d.GetNamespace(nsid)
+			if ns == nil || ns.Password != password {
+				s.authorized = false
+				r.Resp = redis.NewErrorf("ERR invalid password")
+			} else {
+				s.authorized = true
+				r.Resp = RespOK
+				s.namespace = ns
+				s.namespace.incrSessions()
+				log.Infof("namespace session [%p] auth: %q success, key pre %q", s, r.Multi[1].Value, ns.KeyPrefix)
+			}
+		}
 	}
 	return nil
 }
@@ -663,10 +698,16 @@ func (s *Session) flushOpStats(force bool) {
 		}
 	}
 	s.stats.flush.nano = nano
-
-	incrOpTotal(s.stats.total.Swap(0))
+	n := s.stats.total.Swap(0)
+	incrOpTotal(n)
+	if s.namespace != nil {
+		s.namespace.incrOpTotal(n)
+	}
 	for _, e := range s.stats.opmap {
 		if e.calls.Int64() != 0 || e.fails.Int64() != 0 {
+			if s.namespace != nil {
+				s.namespace.incrOpStats(e)
+			}
 			incrOpStats(e)
 		}
 	}

@@ -260,6 +260,29 @@ func (s *Proxy) FillSlots(slots []*models.Slot) error {
 	return nil
 }
 
+func (s *Proxy) FillNamspaces(ns []*models.Namespace) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosedProxy
+	}
+	for _, m := range ns {
+		if err := s.router.FillNamespace(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Proxy) FillNamspace(ns *models.Namespace) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosedProxy
+	}
+	return s.router.FillNamespace(ns)
+}
+
 func (s *Proxy) SwitchMasters(masters map[int]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -467,6 +490,23 @@ type Overview struct {
 	Slots   []*models.Slot `json:"slots,omitempty"`
 }
 
+type namespaceOps struct {
+	Id    string `json:"id"`
+	Total int64  `json:"total"`
+	Fails int64  `json:"fails"`
+	Redis struct {
+		Errors int64 `json:"errors"`
+	} `json:"redis"`
+	QPS int64      `json:"qps"`
+	Cmd []*OpStats `json:"cmd,omitempty"`
+}
+
+type namespaceSession struct {
+	Id    string `json:"id"`
+	Total int64  `json:"total"`
+	Alive int64  `json:"alive"`
+}
+
 type Stats struct {
 	Online bool `json:"online"`
 	Closed bool `json:"closed"`
@@ -486,6 +526,9 @@ type Stats struct {
 		QPS int64      `json:"qps"`
 		Cmd []*OpStats `json:"cmd,omitempty"`
 	} `json:"ops"`
+
+	NamespaceOps      []namespaceOps     `json:"namespace_ops"`
+	NamespaceSessions []namespaceSession `json:"namespace_sessions"`
 
 	Sessions struct {
 		Total int64 `json:"total"`
@@ -587,6 +630,28 @@ func (s *Proxy) Stats(flags StatsFlags) *Stats {
 
 	if flags.HasBit(StatsCmds) {
 		stats.Ops.Cmd = GetOpStatsAll()
+	}
+	ns := s.router.GetNamespaces()
+	for _, n := range ns {
+		stats.NamespaceSessions = append(
+			stats.NamespaceSessions,
+			namespaceSession{
+				Id:    n.Id,
+				Total: n.SessionsTotal(),
+				Alive: n.SessionsAlive(),
+			},
+		)
+	}
+	for _, n := range ns {
+		s := namespaceOps{
+			Id:    n.Id,
+			Total: n.OpTotal(),
+			Fails: n.OpFails(),
+			QPS:   n.OpQPS(),
+		}
+		s.Cmd = n.GetOpStatsAll()
+		s.Redis.Errors = n.OpRedisErrors()
+		stats.NamespaceOps = append(stats.NamespaceOps, s)
 	}
 
 	stats.Sessions.Total = SessionsTotal()

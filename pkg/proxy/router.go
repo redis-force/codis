@@ -27,12 +27,15 @@ type Router struct {
 	config *Config
 	online bool
 	closed bool
+
+	namespace map[string]*Namespace
 }
 
 func NewRouter(config *Config) *Router {
 	s := &Router{config: config}
 	s.pool.primary = newSharedBackendConnPool(config, config.BackendPrimaryParallel)
 	s.pool.replica = newSharedBackendConnPool(config, config.BackendReplicaParallel)
+	s.namespace = map[string]*Namespace{}
 	for i := range s.slots {
 		s.slots[i].id = i
 		s.slots[i].method = &forwardSync{}
@@ -60,6 +63,25 @@ func (s *Router) Close() {
 	for i := range s.slots {
 		s.fillSlot(&models.Slot{Id: i}, false, nil)
 	}
+}
+
+func (s *Router) GetNamespace(nsid string) *Namespace {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.namespace[nsid]; ok {
+		return s.namespace[nsid]
+	}
+	return nil
+}
+
+func (s *Router) GetNamespaces() []*Namespace {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := make([]*Namespace, 0, len(s.namespace))
+	for _, n := range s.namespace {
+		ns = append(ns, n)
+	}
+	return ns
 }
 
 func (s *Router) GetSlots() []*models.Slot {
@@ -94,9 +116,10 @@ func (s *Router) HasSwitched() bool {
 }
 
 var (
-	ErrClosedRouter  = errors.New("use of closed router")
-	ErrInvalidSlotId = errors.New("use of invalid slot id")
-	ErrInvalidMethod = errors.New("use of invalid forwarder method")
+	ErrClosedRouter            = errors.New("use of closed router")
+	ErrInvalidSlotId           = errors.New("use of invalid slot id")
+	ErrInvalidMethod           = errors.New("use of invalid forwarder method")
+	ErrNamespaceAlreadyExisted = errors.New("namespace already existed")
 )
 
 func (s *Router) FillSlot(m *models.Slot) error {
@@ -120,6 +143,23 @@ func (s *Router) FillSlot(m *models.Slot) error {
 	s.fillSlot(m, false, method)
 	return nil
 }
+func (s *Router) FillNamespace(m *models.Namespace) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosedRouter
+	}
+	if n, ok := s.namespace[m.Id]; ok {
+		if string(n.KeyPrefix) != m.KeyPrefix {
+			return ErrNamespaceAlreadyExisted
+		} else {
+			s.namespace[m.Id].Password = m.Password
+		}
+	} else {
+		s.namespace[m.Id] = NewNamespace(m.Id, m.Password, []byte(m.KeyPrefix))
+	}
+	return nil
+}
 
 func (s *Router) KeepAlive() error {
 	s.mu.RLock()
@@ -137,7 +177,7 @@ func (s *Router) isOnline() bool {
 }
 
 func (s *Router) dispatch(r *Request) error {
-	hkey := getHashKey(r.Multi, r.OpStr)
+	hkey := getHashKey(r.Multi, r.OpStr, r.namespace.KeyPrefix)
 	var id = Hash(hkey) % MaxSlotNum
 	slot := &s.slots[id]
 	return slot.forward(r, hkey)

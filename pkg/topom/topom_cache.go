@@ -24,6 +24,13 @@ func (s *Topom) dirtyGroupCache(gid int) {
 		}
 	})
 }
+func (s *Topom) dirtyNamespaceCache(nid string) {
+	s.cache.hooks.PushBack(func() {
+		if s.cache.namespace != nil {
+			s.cache.namespace[nid] = nil
+		}
+	})
+}
 
 func (s *Topom) dirtyProxyCache(token string) {
 	s.cache.hooks.PushBack(func() {
@@ -45,6 +52,7 @@ func (s *Topom) dirtyCacheAll() {
 		s.cache.group = nil
 		s.cache.proxy = nil
 		s.cache.sentinel = nil
+		s.cache.namespace = nil
 	})
 }
 
@@ -76,6 +84,12 @@ func (s *Topom) refillCache() error {
 		return errors.Errorf("store: load sentinel failed")
 	} else {
 		s.cache.sentinel = sentinel
+	}
+	if ns, err := s.refillCacheNamespace(s.cache.namespace); err != nil {
+		log.ErrorErrorf(err, "store: load namespace failed")
+		return errors.Errorf("store: load namespace failed")
+	} else {
+		s.cache.namespace = ns
 	}
 	return nil
 }
@@ -120,6 +134,27 @@ func (s *Topom) refillCacheGroup(group map[int]*models.Group) (map[int]*models.G
 		}
 	}
 	return group, nil
+}
+
+func (s *Topom) refillCacheNamespace(ns map[string]*models.Namespace) (map[string]*models.Namespace, error) {
+	if ns == nil {
+		return s.store.ListNamespace()
+	}
+	for i, _ := range ns {
+		if ns[i] != nil {
+			continue
+		}
+		g, err := s.store.LoadNamespace(i, false)
+		if err != nil {
+			return nil, err
+		}
+		if g != nil {
+			ns[i] = g
+		} else {
+			delete(ns, i)
+		}
+	}
+	return ns, nil
 }
 
 func (s *Topom) refillCacheProxy(proxy map[string]*models.Proxy) (map[string]*models.Proxy, error) {
@@ -225,6 +260,15 @@ func (s *Topom) storeUpdateSentinel(p *models.Sentinel) error {
 	if err := s.store.UpdateSentinel(p); err != nil {
 		log.ErrorErrorf(err, "store: update sentinel failed")
 		return errors.Errorf("store: update sentinel failed")
+	}
+	return nil
+}
+
+func (s *Topom) storeNamespace(n *models.Namespace) error {
+	log.Warnf("store namespace-[%s]:\n%s", n.Id, n.Encode())
+	if err := s.store.StoreNamespace(n); err != nil {
+		log.ErrorErrorf(err, "store: store namespace-[%s] failed", n.Id)
+		return errors.Errorf("store: store namespace-[%s] failed", n.Id)
 	}
 	return nil
 }

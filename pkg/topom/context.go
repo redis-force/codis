@@ -18,9 +18,10 @@ import (
 const MaxSlotNum = models.MaxSlotNum
 
 type context struct {
-	slots []*models.SlotMapping
-	group map[int]*models.Group
-	proxy map[string]*models.Proxy
+	slots     []*models.SlotMapping
+	group     map[int]*models.Group
+	proxy     map[string]*models.Proxy
+	namespace map[string]*models.Namespace
 
 	sentinel *models.Sentinel
 
@@ -175,11 +176,29 @@ func (ctx *context) toSlotSlice(slots []*models.SlotMapping, p *models.Proxy) []
 	return slice
 }
 
+func (ctx *context) toNamespaceSlice(ns map[string]*models.Namespace) []*models.Namespace {
+	var slice = make([]*models.Namespace, len(ns))
+	i := 0
+	for k := range ns {
+		slice[i] = ns[k]
+		i++
+		//slice[i] = ctx.toSlot(m, p)
+	}
+	return slice
+}
+
 func (ctx *context) getGroup(gid int) (*models.Group, error) {
 	if g := ctx.group[gid]; g != nil {
 		return g, nil
 	}
 	return nil, errors.Errorf("group-[%d] doesn't exist", gid)
+}
+
+func (ctx *context) getNamespace(nid string) (*models.Namespace, error) {
+	if n := ctx.namespace[nid]; n != nil {
+		return n, nil
+	}
+	return nil, errors.Errorf("namespace-[%s] doesn't exist", nid)
 }
 
 func (ctx *context) getGroupIndex(g *models.Group, addr string) (int, error) {

@@ -140,9 +140,10 @@ type Config struct {
 	JodisTimeout    timesize.Duration `toml:"jodis_timeout" json:"jodis_timeout"`
 	JodisCompatible bool              `toml:"jodis_compatible" json:"jodis_compatible"`
 
-	ProductName string `toml:"product_name" json:"product_name"`
-	ProductAuth string `toml:"product_auth" json:"-"`
-	SessionAuth string `toml:"session_auth" json:"-"`
+	ProductName      string `toml:"product_name" json:"product_name"`
+	ProductAuth      string `toml:"product_auth" json:"-"`
+	SessionAuth      string `toml:"session_auth" json:"-"`
+	SessionNamespace bool   `toml:"session_namespace" json:"-"`
 
 	ProxyDataCenter      string         `toml:"proxy_datacenter" json:"proxy_datacenter"`
 	ProxyMaxClients      int            `toml:"proxy_max_clients" json:"proxy_max_clients"`

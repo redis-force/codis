@@ -32,10 +32,11 @@ type Topom struct {
 	model *models.Topom
 	store *models.Store
 	cache struct {
-		hooks list.List
-		slots []*models.SlotMapping
-		group map[int]*models.Group
-		proxy map[string]*models.Proxy
+		hooks     list.List
+		slots     []*models.SlotMapping
+		group     map[int]*models.Group
+		proxy     map[string]*models.Proxy
+		namespace map[string]*models.Namespace
 
 		sentinel *models.Sentinel
 	}
@@ -259,6 +260,13 @@ func (s *Topom) XAuth() string {
 func (s *Topom) Model() *models.Topom {
 	return s.model
 }
+func (s *Topom) Namespace() ([]*models.Namespace, error) {
+	ctx, err := s.newContext()
+	if err != nil {
+		return nil, err
+	}
+	return ctx.toNamespaceSlice(ctx.namespace), err
+}
 
 var ErrNotOnline = errors.New("topom is not online")
 
@@ -275,6 +283,7 @@ func (s *Topom) newContext() (*context, error) {
 			ctx.group = s.cache.group
 			ctx.proxy = s.cache.proxy
 			ctx.sentinel = s.cache.sentinel
+			ctx.namespace = s.cache.namespace
 			ctx.hosts.m = make(map[string]net.IP)
 			ctx.method, _ = models.ParseForwardMethod(s.config.MigrationMethod)
 			return ctx, nil

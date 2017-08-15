@@ -303,13 +303,16 @@ func Hash(key []byte) uint32 {
 	return crc32.ChecksumIEEE(key)
 }
 
-func getHashKey(multi []*redis.Resp, opstr string) []byte {
+func getHashKey(multi []*redis.Resp, opstr string, keypre []byte) []byte {
 	var index = 1
 	switch opstr {
 	case "ZINTERSTORE", "ZUNIONSTORE", "EVAL", "EVALSHA":
 		index = 3
 	}
 	if index < len(multi) {
+		if keypre != nil {
+			multi[index].Value = append(keypre, multi[index].Value...)
+		}
 		return multi[index].Value
 	}
 	return nil

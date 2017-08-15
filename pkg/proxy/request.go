@@ -28,6 +28,8 @@ type Request struct {
 	Err error
 
 	Coalesce func() error
+
+	namespace *Namespace
 }
 
 func (r *Request) IsBroken() bool {
@@ -44,6 +46,7 @@ func (r *Request) MakeSubRequest(n int) []Request {
 		x.Broken = r.Broken
 		x.Database = r.Database
 		x.UnixNano = r.UnixNano
+		x.namespace = r.namespace
 	}
 	return sub
 }

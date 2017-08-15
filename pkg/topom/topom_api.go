@@ -120,6 +120,12 @@ func newApiServer(t *Topom) http.Handler {
 			r.Get("/info/:addr", api.InfoSentinel)
 			r.Get("/info/:addr/monitored", api.InfoSentinelMonitored)
 		})
+		r.Group("/namespaces", func(r martini.Router) {
+			r.Put("/add/:xauth", binding.Json(models.Namespace{}), api.CreateNamespace)
+			r.Put("/resync/:xauth/:nid", api.ResyncNamespace)
+			r.Put("/resync-all/:xauth", api.ResyncNamespaceAll)
+			r.Get("/list/:xauth", api.ListNamespace)
+		})
 	})
 
 	m.MapTo(r, (*martini.Routes)(nil))
@@ -754,6 +760,49 @@ func (s *apiServer) SlotsRebalance(params martini.Params) (int, string) {
 		return rpc.ApiResponseJson(m)
 	}
 }
+func (s *apiServer) CreateNamespace(ns models.Namespace, params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	if err := s.topom.CreateNamespace(ns); err != nil {
+		return rpc.ApiResponseError(err)
+	} else {
+		return rpc.ApiResponseJson("OK")
+	}
+}
+func (s *apiServer) ResyncNamespace(params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	nid := params["nid"]
+	if err := s.topom.ResyncNamespace(nid); err != nil {
+		return rpc.ApiResponseError(err)
+	} else {
+		return rpc.ApiResponseJson("OK")
+	}
+}
+
+func (s *apiServer) ResyncNamespaceAll(params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	if err := s.topom.ResyncNamespaceAll(); err != nil {
+		return rpc.ApiResponseError(err)
+	} else {
+		return rpc.ApiResponseJson("OK")
+	}
+}
+
+func (s *apiServer) ListNamespace(params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	if ns, err := s.topom.Namespace(); err != nil {
+		return rpc.ApiResponseError(err)
+	} else {
+		return rpc.ApiResponseJson(ns)
+	}
+}
 
 type ApiClient struct {
 	addr  string
@@ -1003,4 +1052,27 @@ func (c *ApiClient) SlotsRebalance(confirm bool) (map[int]int, error) {
 		}
 		return m, nil
 	}
+}
+
+func (c *ApiClient) CreateNamespace(ns models.Namespace) error {
+	url := c.encodeURL("/api/topom/namespaces/create/%s", c.xauth)
+	return rpc.ApiPutJson(url, ns, nil)
+}
+
+func (c *ApiClient) ResyncNamespace(nid string) error {
+	url := c.encodeURL("/api/topom/namespaces/resync/%s/%d", c.xauth, nid)
+	return rpc.ApiPutJson(url, nil, nil)
+}
+
+func (c *ApiClient) ResyncNamespaceAll() error {
+	url := c.encodeURL("/api/topom/namespaces/resync-all/%s", c.xauth)
+	return rpc.ApiPutJson(url, nil, nil)
+}
+
+func (c *ApiClient) ListNamespace() (interface{}, error) {
+	url := c.encodeURL("/api/topom/namespaces/list/%s", c.xauth)
+	var rsp interface{}
+	var r interface{} = &rsp
+	err := rpc.ApiGetJson(url, r)
+	return rsp, err
 }
