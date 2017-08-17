@@ -45,8 +45,9 @@ type Session struct {
 	broken atomic2.Bool
 	config *Config
 
-	authorized bool
-	namespace  *Namespace
+	authorized    bool
+	namespace     *Namespace
+	haveNamespace atomic2.Bool
 }
 
 func (s *Session) String() string {
@@ -77,6 +78,8 @@ func NewSession(sock net.Conn, config *Config) *Session {
 		CreateUnix: time.Now().Unix(),
 	}
 	s.stats.opmap = make(map[string]*opStats, 16)
+	s.namespace = nil
+	s.haveNamespace.Set(false)
 	log.Infof("session [%p] create: %s", s, s)
 	return s
 }
@@ -137,7 +140,7 @@ func (s *Session) Start(d *Router) {
 		go func() {
 			s.loopWriter(tasks)
 			decrSessions()
-			if s.namespace != nil {
+			if s.haveNamespace.IsTrue() {
 				s.namespace.decrSessions()
 			}
 		}()
@@ -179,7 +182,7 @@ func (s *Session) loopReader(tasks *RequestChan, d *Router) (err error) {
 		r.Batch = &sync.WaitGroup{}
 		r.Database = s.database
 		r.UnixNano = start.UnixNano()
-		if s.config.SessionNamespace && s.namespace != nil {
+		if s.config.SessionNamespace && s.haveNamespace.IsTrue() {
 			r.namespace = s.namespace
 		}
 
@@ -336,7 +339,6 @@ func (s *Session) handleAuth(r *Request, d *Router) error {
 			return nil
 		}
 		data := strings.Split(string(r.Multi[1].Value), ":")
-		//log.Infof("namespace session [%p] auth: %q", s, r.Multi[1].Value)
 		if len(data) != 2 {
 			s.authorized = false
 			r.Resp = redis.NewErrorf("ERR invalid password")
@@ -348,10 +350,12 @@ func (s *Session) handleAuth(r *Request, d *Router) error {
 				s.authorized = false
 				r.Resp = redis.NewErrorf("ERR invalid password")
 			} else {
-				s.authorized = true
-				r.Resp = RespOK
-				s.namespace = ns
-				s.namespace.incrSessions()
+				if s.haveNamespace.CompareAndSwap(false, true) {
+					s.authorized = true
+					r.Resp = RespOK
+					s.namespace = ns
+					s.namespace.incrSessions()
+				}
 				log.Infof("namespace session [%p] auth: %q success, key pre %q", s, r.Multi[1].Value, ns.KeyPrefix)
 			}
 		}
@@ -662,6 +666,9 @@ func (s *Session) handleRequestSlotsMapping(r *Request, d *Router) error {
 
 func (s *Session) incrOpTotal() {
 	s.stats.total.Incr()
+	if s.haveNamespace.IsTrue() {
+		s.namespace.incrOpTotal(1)
+	}
 }
 
 func (s *Session) getOpStats(opstr string) *opStats {
@@ -689,6 +696,21 @@ func (s *Session) incrOpFails(r *Request, err error) error {
 	return err
 }
 
+func (s *Session) flushIncrOpTotal() {
+	n := s.stats.total.Swap(0)
+	incrOpTotal(n)
+	if s.haveNamespace.IsTrue() {
+		s.namespace.incrOpTotal(n)
+	}
+}
+
+func (s *Session) flushIncrOpStats(e *opStats) {
+	if s.haveNamespace.IsTrue() {
+		s.namespace.incrOpStats(e)
+	}
+	incrOpStats(e)
+}
+
 func (s *Session) flushOpStats(force bool) {
 	var nano = time.Now().UnixNano()
 	if !force {
@@ -698,17 +720,10 @@ func (s *Session) flushOpStats(force bool) {
 		}
 	}
 	s.stats.flush.nano = nano
-	n := s.stats.total.Swap(0)
-	incrOpTotal(n)
-	if s.namespace != nil {
-		s.namespace.incrOpTotal(n)
-	}
+	s.flushIncrOpTotal()
 	for _, e := range s.stats.opmap {
 		if e.calls.Int64() != 0 || e.fails.Int64() != 0 {
-			if s.namespace != nil {
-				s.namespace.incrOpStats(e)
-			}
-			incrOpStats(e)
+			s.flushIncrOpStats(e)
 		}
 	}
 	s.stats.flush.n++

@@ -121,7 +121,7 @@ func newApiServer(t *Topom) http.Handler {
 			r.Get("/info/:addr/monitored", api.InfoSentinelMonitored)
 		})
 		r.Group("/namespaces", func(r martini.Router) {
-			r.Put("/add/:xauth", binding.Json(models.Namespace{}), api.CreateNamespace)
+			r.Put("/create/:xauth", binding.Json(models.Namespace{}), api.CreateNamespace)
 			r.Put("/resync/:xauth/:nid", api.ResyncNamespace)
 			r.Put("/resync-all/:xauth", api.ResyncNamespaceAll)
 			r.Get("/list/:xauth", api.ListNamespace)
